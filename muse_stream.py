@@ -1,8 +1,11 @@
+import json
 import math
 import signal
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import numpy as np
 from brainflow.board_shim import BoardIds, BoardShim, BrainFlowInputParams
@@ -31,6 +34,49 @@ class StreamConfig:
 
 
 CONFIG = StreamConfig()
+
+
+class ScoreHTTPHandler(BaseHTTPRequestHandler):
+	"""HTTP handler to expose the current discomfort score."""
+	# Class variable to hold reference to runtime state
+	runtime_state = None
+
+	def do_GET(self):
+		if self.path == "/api/score":
+			if self.runtime_state and self.runtime_state.smoothed_score is not None:
+				response = {
+					"score": self.runtime_state.smoothed_score,
+					"label": self.runtime_state.last_label,
+				}
+			else:
+				response = {
+					"score": 50.0,
+					"label": "calibrating",
+				}
+			
+			self.send_response(200)
+			self.send_header("Content-Type", "application/json")
+			self.send_header("Access-Control-Allow-Origin", "*")
+			self.end_headers()
+			self.wfile.write(json.dumps(response).encode())
+		else:
+			self.send_response(404)
+			self.end_headers()
+
+	def log_message(self, format, *args):
+		# Suppress HTTP server logging
+		pass
+
+
+def start_score_server(state: RuntimeState, port: int = 8000) -> threading.Thread:
+	"""Start HTTP server in a background thread."""
+	ScoreHTTPHandler.runtime_state = state
+	server = HTTPServer(("localhost", port), ScoreHTTPHandler)
+	thread = threading.Thread(target=server.serve_forever, daemon=True)
+	thread.start()
+	print(f"Score server listening on http://localhost:{port}/api/score")
+	return thread
+
 
 
 @dataclass
@@ -362,10 +408,10 @@ def run_stream_loop(
 			continue
 
 		quality_ok, max_std_uv = signal_quality_ok(data, eeg_channels, config.noise_std_uv_threshold)
-		if not quality_ok:
-			process_noisy_window(elapsed, max_std_uv, state, plot_ctx, config)
-			time.sleep(config.step_sec)
-			continue
+		# if not quality_ok:
+		# 	process_noisy_window(elapsed, max_std_uv, state, plot_ctx, config)
+		# 	time.sleep(config.step_sec)
+		# 	continue
 
 		process_clean_window(
 			elapsed,
@@ -389,6 +435,9 @@ def main() -> None:
 	board = BoardShim(config.board_id, build_input_params(config))
 	plot_ctx = setup_live_plot() if config.enable_live_plot else None
 	state = RuntimeState()
+
+	# Start HTTP server to expose score
+	start_score_server(state, port=8000)
 
 	should_stop = {"flag": False}
 
