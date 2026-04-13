@@ -5,13 +5,153 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Wig Visualizer</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            box-sizing: border-box;
+        }
+
+        .shell {
+            width: min(1100px, 100%);
+        }
+
+        .top {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        h1 {
+            margin: 0;
+        }
+
+        .connection {
+            margin: 0;
+        }
+
+        #p5-container {
+            width: 100%;
+        }
+
+        .panel-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 1rem;
+        }
+
+        .controls {
+            display: grid;
+            gap: 1rem;
+        }
+
+        .controls-top {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .controls-actions {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .slider-groups {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 1rem;
+        }
+
+        .slider-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .slider-row {
+            display: grid;
+            grid-template-columns: 130px 1fr 56px;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .slider-row input[type="range"] {
+            width: 100%;
+        }
+
+        .slider-value {
+            text-align: right;
+        }
+
+        .contrib-row {
+            display: grid;
+            grid-template-columns: 88px 1fr 48px;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .contrib-track {
+            height: 8px;
+            overflow: hidden;
+        }
+
+        .contrib-fill {
+            height: 100%;
+            width: 0;
+            transition: width 120ms linear;
+        }
+
+        .row {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        @media (max-width: 760px) {
+            .panel-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .slider-groups {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
 </head>
 <body>
-    <div id="p5-container"></div>
-    <div id="slider-container">
-        <input type="range" id="bangSlider" min="0" max="100" value="100">
-        <span id="slider-value">100</span>
-    </div>
+    <main class="shell">
+        <section class="top">
+            <div class="connection">Status: <span id="connection-status">Starting...</span></div>
+        </section>
+        <div id="p5-container"></div>
+        <section class="controls">
+            <div class="controls-top">
+                <label for="data-source">
+                    Data Source
+                    <select id="data-source">
+                        <option value="backend" selected>Backend API</option>
+                        <option value="manual">Manual Raw Data</option>
+                    </select>
+                </label>
+                <div class="controls-actions">
+                    <button id="reset-values" type="button">Reset Values</button>
+                </div>
+            </div>
+            <div class="slider-groups">
+                <div class="slider-group">
+                    <label class="slider-row" for="left-muse-score"><span>Muse Score</span><input id="left-muse-score" type="range" min="0" max="100" step="1"><span id="left-muse-score-value" class="slider-value">50</span></label>
+                    <label class="slider-row" for="left-gsr-z"><span>GSR Z</span><input id="left-gsr-z" type="range" min="-3" max="3" step="0.01"><span id="left-gsr-z-value" class="slider-value">0.00</span></label>
+                </div>
+                <div class="slider-group">
+                    <label class="slider-row" for="right-muse-score"><span>Muse Score</span><input id="right-muse-score" type="range" min="0" max="100" step="1"><span id="right-muse-score-value" class="slider-value">50</span></label>
+                    <label class="slider-row" for="right-gsr-z"><span>GSR Z</span><input id="right-gsr-z" type="range" min="-3" max="3" step="0.01"><span id="right-gsr-z-value" class="slider-value">0.00</span></label>
+                </div>
+            </div>
+        </section>
+    </main>
     <script src="script.js"></script>
 </body>
 </html>
