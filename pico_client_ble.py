@@ -7,31 +7,55 @@ import aioble
 import bluetooth
 import struct
 from machine import ADC, Pin
+import stepper
 
 _GSR_SERVICE_UUID = bluetooth.UUID("8ab3d6f0-4c07-4fe0-a22f-3e5ca9e7f100")
 _GSR_VALUE_UUID = bluetooth.UUID("8ab3d6f0-4c07-4fe0-a22f-3e5ca9e7f101")
+_OUTPUT_VALUE_UUID = bluetooth.UUID("8ab3d6f0-4c07-4fe0-a22f-3e5ca9e7f102")
 # org.bluetooth.characteristic.gap.appearance.xml (Generic Sensor)
 _ADV_APPEARANCE_GENERIC_SENSOR = const(1344)
 # How frequently to send advertising beacons.
 _ADV_INTERVAL_MS = 250_000
 _GSR_PIN = const(26)
 _GSR_SAMPLE_INTERVAL_MS = const(200)
+# 4-wire stepper pins (ULN2003/28BYJ-48 style).
+_STEPPER_IN1 = const(2)
+_STEPPER_IN2 = const(3)
+_STEPPER_IN3 = const(4)
+_STEPPER_IN4 = const(5)
+_STEPPER_MAX_STEPS = const(1200)
+_STEPPER_STEP_DELAY_MS = const(2)
 # set this device role directly in code: "left" or "right"
 _DEVICE_ROLE = "left"
 _DEVICE_NAME = f"RPi-Pico-{_DEVICE_ROLE}"
 
 gsr_adc = ADC(Pin(_GSR_PIN))
+stepper_motor = stepper.HalfStepMotor.frompins(_STEPPER_IN1, _STEPPER_IN2, _STEPPER_IN3, _STEPPER_IN4)
+stepper_motor.reset()
+
+_target_bang_down_percent = 50
+_target_step_position = (_target_bang_down_percent * _STEPPER_MAX_STEPS) // 100
+_current_step_position = _target_step_position
+
+# Encode raw ADC value as uint16 little-endian.
+def _encode_gsr(adc_value):
+    return struct.pack("<H", int(adc_value) & 0xFFFF)
+
+
+
+def _percent_to_steps(percent):
+    bounded = max(1, min(100, int(percent)))
+    return (bounded * _STEPPER_MAX_STEPS) // 100
 
 # Register GATT server.
 gsr_service = aioble.Service(_GSR_SERVICE_UUID)
 gsr_characteristic = aioble.Characteristic(
     gsr_service, _GSR_VALUE_UUID, read=True, notify=True
 )
+output_characteristic = aioble.Characteristic(
+    gsr_service, _OUTPUT_VALUE_UUID, write=True, capture=True, initial=struct.pack("<H", 50)
+)
 aioble.register_services(gsr_service)
-
-# Encode raw ADC value as uint16 little-endian.
-def _encode_gsr(adc_value):
-    return struct.pack("<H", int(adc_value) & 0xFFFF)
 
 # Read GSR ADC and notify subscribers
 async def sensor_task():
@@ -62,11 +86,55 @@ async def peripheral_task():
             # Ensure the loop continues to the next iteration
             await asyncio.sleep_ms(100)
 
+
+# Read final bang-down outputs written by the central.
+async def output_task():
+    global _target_bang_down_percent, _target_step_position
+    while True:
+        try:
+            connection, data = await output_characteristic.written()
+            if len(data) >= 2:
+                bang_down_percent = max(1, min(100, struct.unpack("<H", data[:2])[0]))
+                _target_bang_down_percent = bang_down_percent
+                _target_step_position = _percent_to_steps(bang_down_percent)
+                print(f"{_DEVICE_ROLE} output from {connection.device}: bang_down={bang_down_percent}%")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            print("Error in output_task:", exc)
+
+
+async def motor_task():
+    while True:
+        try:
+            global _current_step_position
+
+            if _current_step_position < _target_step_position:
+                stepper_motor.step(1)
+                _current_step_position += 1
+                await asyncio.sleep_ms(_STEPPER_STEP_DELAY_MS)
+                continue
+
+            if _current_step_position > _target_step_position:
+                stepper_motor.step(-1)
+                _current_step_position -= 1
+                await asyncio.sleep_ms(_STEPPER_STEP_DELAY_MS)
+                continue
+
+            await asyncio.sleep_ms(_STEPPER_STEP_DELAY_MS)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            print("Error in motor_task:", exc)
+            await asyncio.sleep_ms(_STEPPER_STEP_DELAY_MS)
+
 # Run both tasks
 async def main():
     print(f"Starting GSR peripheral role={_DEVICE_ROLE}, name={_DEVICE_NAME}")
     t1 = asyncio.create_task(sensor_task())
     t2 = asyncio.create_task(peripheral_task())
-    await asyncio.gather(t1, t2)
+    t3 = asyncio.create_task(output_task())
+    t4 = asyncio.create_task(motor_task())
+    await asyncio.gather(t1, t2, t3, t4)
     
 asyncio.run(main())

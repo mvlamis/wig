@@ -4,11 +4,13 @@ import os
 import socket
 import struct
 from datetime import datetime
+import time
 
 from bleak import BleakClient, BleakScanner
 
 GSR_SERVICE_UUID = "8ab3d6f0-4c07-4fe0-a22f-3e5ca9e7f100"
 GSR_VALUE_UUID = "8ab3d6f0-4c07-4fe0-a22f-3e5ca9e7f101"
+OUTPUT_VALUE_UUID = "8ab3d6f0-4c07-4fe0-a22f-3e5ca9e7f102"
 
 PICO_NAME_PREFIX = os.getenv("WIG_PICO_NAME_PREFIX", "RPi-Pico-")
 
@@ -22,12 +24,27 @@ RECONNECT_DELAY_SEC = 2.0
 SCAN_TIMEOUT_SEC = 10.0
 
 
-def encode_packet(value: int, participant: str) -> bytes:
+def scale_gsr_to_percent(raw_value: int) -> int:
+    # clamped = max(0, min(65535, int(raw_value)))
+    # return 1 + (clamped * 99) // 65535
+    # test with moving between 0 <-> 100 over time
+    period_sec = 30.0
+    t = time.monotonic() % period_sec
+    if t < period_sec / 2:
+        return int((t / (period_sec / 2)) * 100)
+    else:        return int(((period_sec - t) / (period_sec / 2)) * 100)
+
+
+
+
+def encode_packet(value: int, participant: str, raw_value: int | None = None) -> bytes:
     payload = {
         "participant": participant,
         "value": value,
         "timestamp": datetime.now().isoformat(timespec="milliseconds"),
     }
+    if raw_value is not None:
+        payload["raw_value"] = raw_value
     return json.dumps(payload).encode("utf-8")
 
 
@@ -56,6 +73,16 @@ async def find_device_for_participant(participant: str):
 
 
 async def stream_participant(participant: str, udp_sock: socket.socket):
+    async def write_output_value(client: BleakClient, percent: int):
+        try:
+            await client.write_gatt_char(
+                OUTPUT_VALUE_UUID,
+                struct.pack("<H", percent),
+                response=True,
+            )
+        except Exception as exc:
+            print(f"[{participant}] Failed to write output value {percent}: {exc}")
+
     while True:
         try:
             device = await find_device_for_participant(participant)
@@ -71,9 +98,17 @@ async def stream_participant(participant: str, udp_sock: socket.socket):
                 def handle_notification(_: int, data: bytearray):
                     if len(data) < 2:
                         return
-                    gsr_value = struct.unpack("<H", data[:2])[0]
-                    udp_sock.sendto(encode_packet(gsr_value, participant), (UDP_HOST, UDP_PORT))
-                    print(f"[{participant}] GSR={gsr_value} -> udp://{UDP_HOST}:{UDP_PORT}")
+                    raw_gsr_value = struct.unpack("<H", data[:2])[0]
+                    percent_value = scale_gsr_to_percent(raw_gsr_value)
+                    udp_sock.sendto(
+                        encode_packet(percent_value, participant, raw_value=raw_gsr_value),
+                        (UDP_HOST, UDP_PORT),
+                    )
+                    asyncio.create_task(write_output_value(client, percent_value))
+                    print(
+                        f"[{participant}] GSR={raw_gsr_value} mapped={percent_value} -> "
+                        f"udp://{UDP_HOST}:{UDP_PORT} and BLE output"
+                    )
 
                 await client.start_notify(GSR_VALUE_UUID, handle_notification)
                 print(f"[{participant}] Subscribed to GSR notifications")
