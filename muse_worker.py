@@ -59,6 +59,19 @@ def logistic(value: float) -> float:
     return 1.0 / (1.0 + math.exp(-value))
 
 
+def gsr_score_from_state(participant: ParticipantState, config: StreamConfig) -> float:
+    if participant.gsr_value is None or not participant.gsr_baseline_ready:
+        return 50.0
+
+    gsr_z = clip(participant.gsr_z, -config.max_abs_z, config.max_abs_z)
+    return 100.0 * logistic(gsr_z)
+
+
+def fused_score_from_state(participant: ParticipantState, config: StreamConfig) -> float:
+    gsr_score = gsr_score_from_state(participant, config)
+    return clip((participant.muse_score + gsr_score) / 2.0, 0.0, 100.0)
+
+
 def zscore(value: float, mean: float, std: float, min_std: float) -> float:
     safe_std = std if std > min_std else min_std
     return (value - mean) / safe_std
@@ -133,8 +146,6 @@ def update_muse_state(
     participant.muse_score = (
         (1.0 - config.score_ema_alpha) * participant.muse_score
     ) + (config.score_ema_alpha * raw_score)
-    participant.bang_down_percent = participant.muse_score
-    participant.label = label_from_score(participant.muse_score)
     participant.status = "live"
 
 
@@ -264,14 +275,21 @@ def run_stream_loop(
                 participant = state.participants[participant_id]
                 update_muse_state(participant, ratio, elapsed, config)
 
+            for participant_id in config.participants:
+                participant = state.participants[participant_id]
+                participant.fused_score = fused_score_from_state(participant, config)
+                participant.bang_down_percent = participant.fused_score
+                if participant.status == "live":
+                    participant.label = label_from_score(participant.fused_score)
+
             state.last_update_iso = datetime.now().isoformat(timespec="seconds")
 
             timestamp = datetime.now().strftime("%H:%M:%S")
-            for participant_id, ratio in updates:
+            for participant_id in config.participants:
                 participant = state.participants[participant_id]
                 print(
-                    f"[{timestamp}] [{participant_id}] score={participant.muse_score:5.1f}/100 "
-                    f"({participant.label}, {participant.status}) beta/alpha={ratio:.4f} "
+                    f"[{timestamp}] [{participant_id}] score={participant.fused_score:5.1f}/100 "
+                    f"({participant.label}, {participant.status}) beta/alpha={participant.beta_alpha_ratio if participant.beta_alpha_ratio is not None else 0:.4f} "
                     f"gsr={participant.gsr_value if participant.gsr_value is not None else 0:.1f} "
                     f"gsr_z={participant.gsr_z:+.3f}"
                 )

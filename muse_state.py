@@ -19,6 +19,7 @@ class ParticipantState:
     gsr_z: float = 0.0
 
     muse_score: float = 50.0
+    fused_score: float = 50.0
     label: str = "calibrating"
     status: str = "waiting-for-muse"
     bang_down_percent: float = 50.0
@@ -49,10 +50,11 @@ def create_runtime_state(config: StreamConfig) -> RuntimeState:
 
 def snapshot_participant(participant: ParticipantState) -> dict:
     return {
-        "score": participant.muse_score,
+        "score": participant.fused_score,
         "label": participant.label,
         "status": participant.status,
         "muse_score": participant.muse_score,
+        "fused_score": participant.fused_score,
         "gsr_value": participant.gsr_value,
         "gsr_z": participant.gsr_z,
         "bang_down_percent": participant.bang_down_percent,
