@@ -29,6 +29,8 @@ class StreamConfig:
 
     score_ema_alpha: float = 0.2
     gsr_ema_alpha: float = 0.35
+    muse_weight: float = 0.5
+    gsr_weight: float = 0.5
     max_abs_z: float = 3.0
     min_std: float = 1e-3
     epsilon: float = 1e-8

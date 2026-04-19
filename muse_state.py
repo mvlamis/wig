@@ -36,14 +36,26 @@ class ParticipantState:
 @dataclass
 class RuntimeState:
     participants: dict[str, ParticipantState] = field(default_factory=dict)
+    muse_weight: float = 0.5
+    gsr_weight: float = 0.5
     last_update_iso: str = ""
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
 def create_runtime_state(config: StreamConfig) -> RuntimeState:
+    total_weight = config.muse_weight + config.gsr_weight
+    if total_weight <= 0:
+        muse_weight = 0.5
+        gsr_weight = 0.5
+    else:
+        muse_weight = config.muse_weight / total_weight
+        gsr_weight = config.gsr_weight / total_weight
+
     participants = {pid: ParticipantState(participant_id=pid) for pid in config.participants}
     return RuntimeState(
         participants=participants,
+        muse_weight=muse_weight,
+        gsr_weight=gsr_weight,
         last_update_iso=datetime.now().isoformat(timespec="seconds"),
     )
 

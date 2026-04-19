@@ -2,7 +2,9 @@ let baseImg;
 let bangImg;
 
 const apiUrl = 'http://localhost:8000/api/scores';
+const weightApiUrl = 'http://localhost:8000/api/weights';
 const fetchInterval = 200;
+const weightFetchInterval = 2000;
 const participants = ['left', 'right'];
 const fields = ['muse_score', 'gsr_z'];
 const blendWeights = {
@@ -40,6 +42,7 @@ let baseCanvasWidth = 0;
 let baseCanvasHeight = 0;
 const wigGap = 36;
 let dataSourceMode = 'backend';
+let weightSaveTimeout = null;
 
 function preload() {
     baseImg = loadImage('wig base.png');
@@ -58,14 +61,18 @@ function setup() {
     window.addEventListener('resize', resizeCanvasToContainer);
 
     setupDataControls();
+    setupWeightControls();
     setupSliderBindings();
     refreshSliderUIFromState();
+    refreshWeightUI();
     recomputeManualBlend('left');
     recomputeManualBlend('right');
 
     updatePanels();
     fetchDualScores();
+    fetchWeights();
     setInterval(fetchDualScores, fetchInterval);
+    setInterval(fetchWeights, weightFetchInterval);
 }
 
 function setupDataControls() {
@@ -81,6 +88,8 @@ function setupDataControls() {
             state.left.status = 'manual';
             state.right.status = 'manual';
             updatePanels();
+        } else {
+            fetchWeights();
         }
     });
 
@@ -101,6 +110,152 @@ function setupDataControls() {
     });
 
     syncEditorModeUI();
+}
+
+function setupWeightControls() {
+    const museInput = document.getElementById('weight-muse');
+    const gsrInput = document.getElementById('weight-gsr');
+    const refreshButton = document.getElementById('refresh-weights');
+
+    museInput.addEventListener('input', event => {
+        const musePct = normalizeWeightPercent(Number(event.target.value));
+        blendWeights.muse_score = musePct / 100;
+        blendWeights.gsr_z = (100 - musePct) / 100;
+        refreshWeightUI();
+        handleWeightChanged();
+    });
+
+    gsrInput.addEventListener('input', event => {
+        const gsrPct = normalizeWeightPercent(Number(event.target.value));
+        blendWeights.gsr_z = gsrPct / 100;
+        blendWeights.muse_score = (100 - gsrPct) / 100;
+        refreshWeightUI();
+        handleWeightChanged();
+    });
+
+    refreshButton.addEventListener('click', () => {
+        fetchWeights();
+    });
+}
+
+function normalizeWeightPercent(value) {
+    return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function refreshWeightUI() {
+    const musePct = normalizeWeightPercent(blendWeights.muse_score * 100);
+    const gsrPct = 100 - musePct;
+
+    document.getElementById('weight-muse').value = musePct;
+    document.getElementById('weight-gsr').value = gsrPct;
+    document.getElementById('weight-muse-value').textContent = `${musePct}%`;
+    document.getElementById('weight-gsr-value').textContent = `${gsrPct}%`;
+
+    for (const participantId of participants) {
+        recomputeManualBlend(participantId);
+    }
+
+    updatePanels();
+}
+
+function handleWeightChanged() {
+    if (dataSourceMode === 'backend') {
+        setWeightStatus('Saving weights...');
+        queueWeightSave();
+    } else {
+        setWeightStatus('Manual mode weights updated locally');
+    }
+}
+
+function queueWeightSave() {
+    if (weightSaveTimeout) {
+        clearTimeout(weightSaveTimeout);
+    }
+
+    weightSaveTimeout = setTimeout(() => {
+        saveWeightsToBackend();
+    }, 120);
+}
+
+function setWeightStatus(message) {
+    document.getElementById('weight-status').textContent = message;
+}
+
+function applyWeightPayload(payload) {
+    const museWeight = Number(payload?.muse_weight);
+    const gsrWeight = Number(payload?.gsr_weight);
+    if (!Number.isFinite(museWeight) || !Number.isFinite(gsrWeight)) {
+        return false;
+    }
+
+    const total = museWeight + gsrWeight;
+    if (total <= 0) {
+        return false;
+    }
+
+    blendWeights.muse_score = museWeight / total;
+    blendWeights.gsr_z = gsrWeight / total;
+    refreshWeightUI();
+    return true;
+}
+
+function fetchWeights() {
+    if (dataSourceMode !== 'backend') {
+        return;
+    }
+
+    fetch(weightApiUrl)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Failed to fetch weights');
+            }
+            return response.json();
+        })
+        .then(payload => {
+            const applied = applyWeightPayload(payload);
+            if (applied) {
+                setWeightStatus('Live backend control active');
+            } else {
+                setWeightStatus('Backend returned invalid weights');
+            }
+        })
+        .catch(() => {
+            setWeightStatus('Weight API unavailable');
+        });
+}
+
+function saveWeightsToBackend() {
+    if (dataSourceMode !== 'backend') {
+        return;
+    }
+
+    fetch(weightApiUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            muse_weight: blendWeights.muse_score,
+            gsr_weight: blendWeights.gsr_z,
+        }),
+    })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Failed to save weights');
+            }
+            return response.json();
+        })
+        .then(payload => {
+            const applied = applyWeightPayload(payload);
+            if (applied) {
+                setWeightStatus('Weights saved');
+            } else {
+                setWeightStatus('Weights saved, but payload was invalid');
+            }
+        })
+        .catch(() => {
+            setWeightStatus('Failed to save weights');
+        });
 }
 
 function setupSliderBindings() {
@@ -200,7 +355,7 @@ function updateInteractionUI(participantId) {
 
     const formulaEl = document.getElementById(`${participantId}-interaction-formula`);
     if (formulaEl) {
-        formulaEl.textContent = `0.50*M + 0.50*Z = ${interaction.blended.toFixed(1)}%`;
+        formulaEl.textContent = `${blendWeights.muse_score.toFixed(2)}*M + ${blendWeights.gsr_z.toFixed(2)}*Z = ${interaction.blended.toFixed(1)}%`;
     }
 
     const uiMap = {
@@ -226,6 +381,9 @@ function updateSingleSliderValueLabel(participantId, field, value) {
 function syncEditorModeUI() {
     const isManual = dataSourceMode === 'manual';
     const resetButton = document.getElementById('reset-values');
+    const museWeightInput = document.getElementById('weight-muse');
+    const gsrWeightInput = document.getElementById('weight-gsr');
+    const refreshWeightsButton = document.getElementById('refresh-weights');
 
     for (const participantId of participants) {
         for (const field of fields) {
@@ -236,6 +394,9 @@ function syncEditorModeUI() {
     }
 
     resetButton.disabled = !isManual;
+    museWeightInput.disabled = false;
+    gsrWeightInput.disabled = false;
+    refreshWeightsButton.disabled = isManual;
 }
 
 function updateConnectionStatus(message) {

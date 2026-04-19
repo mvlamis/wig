@@ -66,6 +66,35 @@
             gap: 1rem;
         }
 
+        .weight-controls {
+            display: grid;
+            gap: 0.5rem;
+        }
+
+        .weight-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .weight-row {
+            display: grid;
+            grid-template-columns: 130px 1fr 56px;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .weight-row input[type="range"] {
+            width: 100%;
+        }
+
+        .weight-status {
+            margin: 0;
+            font-size: 0.95rem;
+        }
+
         .slider-group {
             display: flex;
             flex-direction: column;
@@ -140,6 +169,15 @@
                     <button id="reset-values" type="button">Reset Values</button>
                 </div>
             </div>
+            <section class="weight-controls">
+                <div class="weight-header">
+                    <strong>Live Fusion Weights</strong>
+                    <button id="refresh-weights" type="button">Refresh Weights</button>
+                </div>
+                <label class="weight-row" for="weight-muse"><span>Muse Weight</span><input id="weight-muse" type="range" min="0" max="100" step="1"><span id="weight-muse-value" class="slider-value">50%</span></label>
+                <label class="weight-row" for="weight-gsr"><span>GSR Weight</span><input id="weight-gsr" type="range" min="0" max="100" step="1"><span id="weight-gsr-value" class="slider-value">50%</span></label>
+                <p id="weight-status" class="weight-status">Weight control ready</p>
+            </section>
             <div class="slider-groups">
                 <div class="slider-group">
                     <label class="slider-row" for="left-muse-score"><span>Muse Score</span><input id="left-muse-score" type="range" min="0" max="100" step="1"><span id="left-muse-score-value" class="slider-value">50</span></label>

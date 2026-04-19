@@ -23,8 +23,8 @@ _STEPPER_IN1 = const(2)
 _STEPPER_IN2 = const(3)
 _STEPPER_IN3 = const(4)
 _STEPPER_IN4 = const(5)
-_STEPPER_MAX_STEPS = const(1200)
-_STEPPER_STEP_DELAY_MS = const(2)
+_STEPPER_MAX_STEPS = const(3000)
+_STEPPER_STEP_DELAY_MS = const(1)
 # set this device role directly in code: "left" or "right"
 _DEVICE_ROLE = "left"
 _DEVICE_NAME = f"RPi-Pico-{_DEVICE_ROLE}"
@@ -110,14 +110,14 @@ async def motor_task():
             global _current_step_position
 
             if _current_step_position < _target_step_position:
-                stepper_motor.step(1)
-                _current_step_position += 1
+                stepper_motor.step(3)
+                _current_step_position += 3
                 await asyncio.sleep_ms(_STEPPER_STEP_DELAY_MS)
                 continue
 
             if _current_step_position > _target_step_position:
-                stepper_motor.step(-1)
-                _current_step_position -= 1
+                stepper_motor.step(-3)
+                _current_step_position -= 3
                 await asyncio.sleep_ms(_STEPPER_STEP_DELAY_MS)
                 continue
 

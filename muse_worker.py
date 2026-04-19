@@ -67,9 +67,21 @@ def gsr_score_from_state(participant: ParticipantState, config: StreamConfig) ->
     return 100.0 * logistic(gsr_z)
 
 
-def fused_score_from_state(participant: ParticipantState, config: StreamConfig) -> float:
+def fused_score_from_state(
+    participant: ParticipantState,
+    config: StreamConfig,
+    muse_weight: float,
+    gsr_weight: float,
+) -> float:
     gsr_score = gsr_score_from_state(participant, config)
-    return clip((participant.muse_score + gsr_score) / 2.0, 0.0, 100.0)
+    total_weight = muse_weight + gsr_weight
+    if total_weight <= 0:
+        return 50.0
+    return clip(
+        ((muse_weight * participant.muse_score) + (gsr_weight * gsr_score)) / total_weight,
+        0.0,
+        100.0,
+    )
 
 
 def zscore(value: float, mean: float, std: float, min_std: float) -> float:
@@ -261,6 +273,9 @@ def run_stream_loop(
             updates.append((participant_id, ratio))
 
         with state.lock:
+            muse_weight = state.muse_weight
+            gsr_weight = state.gsr_weight
+
             for participant_id in offline_ids:
                 participant = state.participants[participant_id]
                 participant.status = "offline"
@@ -277,7 +292,12 @@ def run_stream_loop(
 
             for participant_id in config.participants:
                 participant = state.participants[participant_id]
-                participant.fused_score = fused_score_from_state(participant, config)
+                participant.fused_score = fused_score_from_state(
+                    participant,
+                    config,
+                    muse_weight,
+                    gsr_weight,
+                )
                 participant.bang_down_percent = participant.fused_score
                 if participant.status == "live":
                     participant.label = label_from_score(participant.fused_score)
